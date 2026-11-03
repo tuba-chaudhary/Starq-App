@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>STARQ Partner</title>
+  <style>
+    body { font-family: Inter, Arial, sans-serif; margin: 24px; color: #1d1f23; }
+    button { background: #d91f1e; color: white; border: 0; border-radius: 8px; padding: 10px 14px; margin: 4px; }
+    .job { border: 1px solid #eee; border-radius: 12px; padding: 12px; margin: 12px 0; }
+  </style>
+</head>
+<body>
+  <h1>STARQ Partner</h1>
+  <p>GPS is sent from this device. Movement is never simulated.</p>
+  <input id="email" placeholder="partner1@starq.in" />
+  <input id="password" type="password" placeholder="Partner@123" />
+  <button onclick="login()">Login</button>
+  <p id="msg"></p>
+  <div id="jobs"></div>
+  <script>
+    let token = '';
+    let watchId = null;
+    async function api(path, opts = {}) {
+      const res = await fetch('/api/v1' + path, {
+        method: opts.method || 'GET',
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      return res.json();
+    }
+    async function login() {
+      const json = await api('/auth/login', { method: 'POST', body: { email: email.value, password: password.value } });
+      if (!json.success) { msg.textContent = json.message; return; }
+      token = json.data.access_token;
+      load();
+    }
+    async function load() {
+      const json = await api('/bookings');
+      jobs.innerHTML = (json.data || []).map((j) => `
+        <div class="job">
+          <strong>${j.booking_number}</strong> · ${j.status}
+          <div>
+            <button onclick="setStatus('${j.id}','PARTNER_ON_THE_WAY')">On the way</button>
+            <button onclick="setStatus('${j.id}','PARTNER_ARRIVED')">Arrived</button>
+            <button onclick="setStatus('${j.id}','SERVICE_STARTED')">Start</button>
+            <button onclick="setStatus('${j.id}','SERVICE_IN_PROGRESS')">In progress</button>
+            <button onclick="setStatus('${j.id}','SERVICE_COMPLETED')">Complete</button>
+            <button onclick="shareGps('${j.id}')">Share real GPS</button>
+          </div>
+        </div>`).join('') || '<p>No assigned jobs.</p>';
+    }
+    async function setStatus(id, status) {
+      const json = await api('/partner/jobs/' + id + '/status', { method: 'POST', body: { status } });
+      msg.textContent = json.success ? status : json.message;
+      load();
+    }
+    function shareGps(bookingId) {
+      if (!navigator.geolocation) { msg.textContent = 'Geolocation is not available on this device'; return; }
+      if (watchId) navigator.geolocation.clearWatch(watchId);
+      watchId = navigator.geolocation.watchPosition(async (pos) => {
+        const json = await api('/partner/location', {
+          method: 'POST',
+          body: { booking_id: bookingId, latitude: pos.coords.latitude, longitude: pos.coords.longitude },
+        });
+        msg.textContent = json.success ? 'GPS sent at ' + new Date().toLocaleTimeString() : json.message;
+      }, (err) => { msg.textContent = err.message; }, { enableHighAccuracy: true });
+    }
+  </script>
+</body>
+</html>

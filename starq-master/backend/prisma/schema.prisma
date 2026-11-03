@@ -1,0 +1,348 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum BookingStatus {
+  DRAFT
+  PENDING_PAYMENT
+  PAYMENT_PROCESSING
+  PAYMENT_FAILED
+  CONFIRMED
+  ASSIGNMENT_PENDING
+  PARTNER_ASSIGNED
+  PARTNER_ON_THE_WAY
+  PARTNER_ARRIVED
+  SERVICE_STARTED
+  SERVICE_IN_PROGRESS
+  SERVICE_COMPLETED
+  CUSTOMER_FEEDBACK_PENDING
+  COMPLETED
+  CANCELLED
+  REFUND_PENDING
+  REFUNDED
+}
+
+enum Role {
+  CUSTOMER
+  ADMIN
+  PARTNER
+}
+
+enum ReferralStatus {
+  PENDING
+  REWARDED
+}
+
+model User {
+  id           String    @id @default(uuid())
+  email        String    @unique
+  password     String?
+  phone        String?   @unique
+  fullName     String?
+  role         Role      @default(CUSTOMER)
+  referralCode String?   @unique
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  vehicles         Vehicle[]
+  addresses        Address[]
+  bookings         Booking[]
+  reviews          Review[]
+  pointsLedger     PointsLedger[]
+  partnerProfile   Partner?
+  notifications    Notification[]
+  deviceTokens     DeviceToken[]
+  referralsMade    Referral[]     @relation("UserReferrer")
+  referralReceived Referral?      @relation("UserReferee")
+}
+
+model VehicleType {
+  id        String   @id @default(uuid())
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vehicles Vehicle[]
+}
+
+model Vehicle {
+  id            String      @id @default(uuid())
+  userId        String
+  vehicleTypeId String
+  make          String
+  model         String
+  category      String?
+  licensePlate  String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+
+  user        User        @relation(fields: [userId], references: [id])
+  vehicleType VehicleType @relation(fields: [vehicleTypeId], references: [id])
+  bookings    Booking[]
+}
+
+model Service {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  category    String
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  variants ServiceVariant[]
+}
+
+model ServiceVariant {
+  id           String   @id @default(uuid())
+  serviceId    String
+  name         String?
+  price        Float
+  durationMins Int      @default(30)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  service      Service       @relation(fields: [serviceId], references: [id])
+  bookingItems BookingItem[]
+}
+
+model ServiceAddon {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  price       Float
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  bookingAddons BookingAddon[]
+}
+
+model Address {
+  id        String   @id @default(uuid())
+  userId    String
+  line1     String
+  line2     String?
+  city      String
+  state     String?
+  zipCode   String?
+  latitude  Float?
+  longitude Float?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user     User      @relation(fields: [userId], references: [id])
+  bookings Booking[]
+}
+
+enum PartnerStatus {
+  AVAILABLE
+  BUSY
+  OFFLINE
+}
+
+model Partner {
+  id                   String        @id @default(uuid())
+  userId               String        @unique
+  isActive             Boolean       @default(true)
+  status               PartnerStatus @default(OFFLINE)
+  serviceArea          String?
+  totalCompletedJobs   Int           @default(0)
+  rating               Float         @default(0.0)
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  user         User                 @relation(fields: [userId], references: [id])
+  availability PartnerAvailability[]
+  bookings     Booking[]
+  locations    PartnerLocation[]
+}
+
+model PartnerAvailability {
+  id        String   @id @default(uuid())
+  partnerId String
+  dayOfWeek Int
+  startTime String
+  endTime   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  partner Partner @relation(fields: [partnerId], references: [id])
+}
+
+model PartnerLocation {
+  id         String   @id @default(uuid())
+  partnerId  String
+  bookingId  String?
+  latitude   Float
+  longitude  Float
+  accuracy   Float?
+  heading    Float?
+  speed      Float?
+  recordedAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+
+  partner Partner  @relation(fields: [partnerId], references: [id])
+  booking Booking? @relation(fields: [bookingId], references: [id])
+
+  @@index([partnerId])
+  @@index([bookingId])
+  @@index([recordedAt(sort: Desc)])
+}
+
+model Booking {
+  id          String        @id @default(uuid())
+  userId      String
+  vehicleId   String
+  addressId   String
+  partnerId   String?
+  status      BookingStatus @default(DRAFT)
+  totalAmount Float         @default(0.0)
+  scheduledAt DateTime
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @updatedAt
+
+  user      User                   @relation(fields: [userId], references: [id])
+  vehicle   Vehicle                @relation(fields: [vehicleId], references: [id])
+  address   Address                @relation(fields: [addressId], references: [id])
+  partner   Partner?               @relation(fields: [partnerId], references: [id])
+  items     BookingItem[]
+  addons    BookingAddon[]
+  history          BookingStatusHistory[]
+  payments         Payment[]
+  reviews          Review[]
+  partnerLocations PartnerLocation[]
+  qualifyingReferral Referral?
+}
+
+model Notification {
+  id        String    @id @default(uuid())
+  userId    String
+  bookingId String?
+  title     String
+  body      String
+  type      String
+  data      Json?
+  readAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt(sort: Desc)])
+}
+
+model DeviceToken {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  platform  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model BookingItem {
+  id               String   @id @default(uuid())
+  bookingId        String
+  serviceVariantId String
+  priceAtBooking   Float
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  booking        Booking        @relation(fields: [bookingId], references: [id])
+  serviceVariant ServiceVariant @relation(fields: [serviceVariantId], references: [id])
+}
+
+model BookingAddon {
+  id             String   @id @default(uuid())
+  bookingId      String
+  serviceAddonId String
+  priceAtBooking Float
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  booking      Booking      @relation(fields: [bookingId], references: [id])
+  serviceAddon ServiceAddon @relation(fields: [serviceAddonId], references: [id])
+}
+
+model BookingStatusHistory {
+  id        String        @id @default(uuid())
+  bookingId String
+  status    BookingStatus
+  notes     String?
+  createdAt DateTime      @default(now())
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+}
+
+model Payment {
+  id            String   @id @default(uuid())
+  bookingId     String
+  amount            Float
+  currency          String   @default("INR")
+  status            String
+  provider          String   @default("razorpay")
+  providerOrderId   String?
+  providerPaymentId String?
+  transactionId     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  bookingId String
+  userId    String
+  rating    Int
+  comment   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  booking Booking @relation(fields: [bookingId], references: [id])
+  user    User    @relation(fields: [userId], references: [id])
+}
+
+model PointsLedger {
+  id             String    @id @default(uuid())
+  userId         String
+  points         Int
+  description    String?
+  type           String?   @default("earned_referral")
+  bookingId      String?
+  expiresAt      DateTime?
+  idempotencyKey String?   @unique
+  createdAt      DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+model Referral {
+  id                  String         @id @default(uuid())
+  referrerId          String
+  refereeId           String         @unique
+  referralCode        String
+  status              ReferralStatus @default(PENDING)
+  qualifyingBookingId String?        @unique
+  rewardedAt          DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @default(now()) @updatedAt
+
+  referrer          User     @relation("UserReferrer", fields: [referrerId], references: [id])
+  referee           User     @relation("UserReferee", fields: [refereeId], references: [id])
+  qualifyingBooking Booking? @relation(fields: [qualifyingBookingId], references: [id], onDelete: SetNull)
+
+  @@index([referrerId])
+  @@index([status])
+}

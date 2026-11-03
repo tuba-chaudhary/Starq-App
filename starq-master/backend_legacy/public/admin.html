@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>STARQ Admin</title>
+  <style>
+    body { font-family: Inter, Arial, sans-serif; margin: 24px; color: #1d1f23; }
+    input, select, button { padding: 8px; margin: 4px 0; }
+    table { border-collapse: collapse; width: 100%; margin-top: 16px; font-size: 14px; }
+    td, th { border-bottom: 1px solid #eee; padding: 8px; text-align: left; }
+    button { background: #d91f1e; color: white; border: 0; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h1>STARQ Operations</h1>
+  <p>Assign partners. Customers never choose a partner.</p>
+  <div>
+    <input id="email" placeholder="admin@starq.in" />
+    <input id="password" type="password" placeholder="password" />
+    <button onclick="login()">Login</button>
+  </div>
+  <p id="msg"></p>
+  <div id="desk" style="display:none">
+    <h3>Partners</h3>
+    <div id="partners"></div>
+    <h3>Bookings</h3>
+    <div id="bookings"></div>
+  </div>
+  <script>
+    let token = '';
+    async function api(path, opts = {}) {
+      const res = await fetch('/api/v1' + path, {
+        ...opts,
+        headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token, ...(opts.headers || {}) },
+        body: opts.body ? JSON.stringify(opts.body) : undefined,
+      });
+      return res.json();
+    }
+    async function login() {
+      const json = await api('/auth/login', { method: 'POST', body: { email: email.value, password: password.value } });
+      if (!json.success) { msg.textContent = json.message; return; }
+      token = json.data.access_token;
+      desk.style.display = 'block';
+      refresh();
+    }
+    async function refresh() {
+      const [p, b] = await Promise.all([api('/admin/partners'), api('/admin/bookings')]);
+      partners.innerHTML = (p.data || []).map((x) => `<div>${x.full_name} · ${x.status} · ${x.email} · id ${x.id}</div>`).join('');
+      bookings.innerHTML = `<table><tr><th>Number</th><th>Status</th><th>Assign</th></tr>${(b.data || []).map((row) => `
+        <tr>
+          <td>${row.booking_number}</td>
+          <td>${row.status}</td>
+          <td>
+            <input id="p-${row.id}" placeholder="partner uuid" />
+            <button onclick="assign('${row.id}')">Assign</button>
+          </td>
+        </tr>`).join('')}</table>`;
+    }
+    async function assign(id) {
+      const partner_id = document.getElementById('p-' + id).value;
+      const json = await api('/admin/bookings/' + id + '/assign', { method: 'POST', body: { partner_id } });
+      msg.textContent = json.success ? 'Assigned' : json.message;
+      refresh();
+    }
+  </script>
+</body>
+</html>

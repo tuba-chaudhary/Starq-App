@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: starq-postgres
+    environment:
+      POSTGRES_USER: starq
+      POSTGRES_PASSWORD: starq
+      POSTGRES_DB: starq
+    ports:
+      - "5432:5432"
+    volumes:
+      - starq_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U starq -d starq"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  starq_pgdata:
