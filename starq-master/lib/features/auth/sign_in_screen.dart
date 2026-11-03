@@ -7,6 +7,7 @@ import 'package:starq_app/core/widgets/google_logo.dart';
 import 'package:starq_app/features/auth/presentation/auth_provider.dart';
 import 'package:starq_app/features/auth/widgets/auth_text_field.dart';
 import 'package:starq_app/features/auth/widgets/social_sign_in_button.dart';
+import 'package:starq_app/features/auth/widgets/phone_otp_sheet.dart';
 
 class SignInScreen extends StatefulWidget {
   const SignInScreen({super.key});
@@ -322,6 +323,26 @@ class _SignInScreenState extends State<SignInScreen> {
                                       ),
                                     ),
                             ),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+
+                        // Login with Mobile OTP Button
+                        OutlinedButton.icon(
+                          onPressed: () => PhoneOtpSheet.show(context),
+                          icon: const Icon(Icons.phone_android_rounded, size: 18, color: Color(0xFF0F172A)),
+                          label: Text(
+                            'Log in with Mobile OTP',
+                            style: GoogleFonts.inter(
+                              fontSize: 14.5,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF0F172A),
+                            ),
+                          ),
+                          style: OutlinedButton.styleFrom(
+                            minimumSize: const Size.fromHeight(48),
+                            side: const BorderSide(color: Color(0xFFE2E8F0)),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                           ),
                         ),
                         const SizedBox(height: 16),

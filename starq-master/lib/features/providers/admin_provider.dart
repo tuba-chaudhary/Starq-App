@@ -16,6 +16,9 @@ class AdminProvider extends ChangeNotifier {
   List<dynamic> _partners = [];
   List<dynamic> get partners => _partners;
 
+  List<dynamic> _applications = [];
+  List<dynamic> get applications => _applications;
+
   AdminProvider(this._apiClient);
 
   Future<void> fetchBookings() async {
@@ -64,6 +67,63 @@ class AdminProvider extends ChangeNotifier {
     try {
       await _apiClient.patch('/admin/bookings/$bookingId/cancel');
       await fetchBookings();
+      return true;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<void> fetchApplications([String? status]) async {
+    _isLoading = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final query = status != null ? '?status=$status' : '';
+      final response = await _apiClient.get('/admin/partner-applications$query');
+      _applications = response.data is List ? response.data : [];
+    } catch (e) {
+      _error = e.toString();
+    } finally {
+      _isLoading = false;
+      notifyListeners();
+    }
+  }
+
+  Future<bool> approveApplication(String id) async {
+    try {
+      await _apiClient.patch('/admin/partner-applications/$id/approve');
+      await fetchApplications();
+      await fetchPartners();
+      return true;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> rejectApplication(String id, String rejectionReason) async {
+    try {
+      await _apiClient.patch(
+        '/admin/partner-applications/$id/reject',
+        data: {'rejectionReason': rejectionReason.trim()},
+      );
+      await fetchApplications();
+      return true;
+    } catch (e) {
+      _error = e.toString();
+      notifyListeners();
+      return false;
+    }
+  }
+
+  Future<bool> suspendApplication(String id) async {
+    try {
+      await _apiClient.patch('/admin/partner-applications/$id/suspend');
+      await fetchApplications();
+      await fetchPartners();
       return true;
     } catch (e) {
       _error = e.toString();

@@ -126,6 +126,114 @@ class AuthProvider extends ChangeNotifier {
     }
   }
 
+  Future<bool> sendOtp(String phone) async {
+    _setLoading(true);
+    _setError(null);
+    _isServerUnavailable = false;
+    try {
+      await _apiClient.post(
+        '/auth/otp/send',
+        data: {'phone': phone.trim()},
+      );
+      _setLoading(false);
+      return true;
+    } on DioException catch (e) {
+      _setError(e.response?.data['message'] ?? 'Failed to send verification code');
+      _setLoading(false);
+      return false;
+    } on AppException catch (e) {
+      _setError(e.message);
+      _setLoading(false);
+      return false;
+    } catch (e) {
+      _setError('Failed to send verification code. Please try again.');
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  Future<bool> verifyOtp(
+    String phone,
+    String otp, {
+    String? fullName,
+    String? email,
+    String? intendedRole,
+  }) async {
+    _setLoading(true);
+    _setError(null);
+    _isServerUnavailable = false;
+    try {
+      final payload = <String, dynamic>{
+        'phone': phone.trim(),
+        'otp': otp.trim(),
+        if (fullName != null && fullName.trim().isNotEmpty) 'fullName': fullName.trim(),
+        if (email != null && email.trim().isNotEmpty) 'email': email.trim().toLowerCase(),
+        if (intendedRole != null) 'intendedRole': intendedRole,
+      };
+
+      final response = await _apiClient.post(
+        '/auth/otp/verify',
+        data: payload,
+      );
+
+      final token = response.data['accessToken'];
+      await _storageService.saveTokens(accessToken: token);
+      final userData = response.data['user'] is Map<String, dynamic>
+          ? response.data['user']
+          : Map<String, dynamic>.from(response.data['user'] as Map);
+      _currentUser = User.fromJson(userData);
+      await LocalCacheService().setString('cached_user_json', jsonEncode(userData));
+      _setLoading(false);
+      return true;
+    } on DioException catch (e) {
+      _setError(e.response?.data['message'] ?? 'Invalid verification code');
+      _setLoading(false);
+      return false;
+    } on AppException catch (e) {
+      _setError(e.message);
+      _setLoading(false);
+      return false;
+    } catch (e) {
+      _setError('Failed to verify code. Please check and try again.');
+      _setLoading(false);
+      return false;
+    }
+  }
+
+  Future<bool> switchMode(String targetRole) async {
+    _setLoading(true);
+    _setError(null);
+    try {
+      final response = await _apiClient.post(
+        '/auth/switch-mode',
+        data: {'role': targetRole},
+      );
+      final token = response.data['accessToken'];
+      if (token != null) {
+        await _storageService.saveTokens(accessToken: token);
+      }
+      final userData = response.data['user'] is Map<String, dynamic>
+          ? response.data['user']
+          : Map<String, dynamic>.from(response.data['user'] as Map);
+      _currentUser = User.fromJson(userData);
+      await LocalCacheService().setString('cached_user_json', jsonEncode(userData));
+      _setLoading(false);
+      return true;
+    } on DioException catch (e) {
+      _setError(e.response?.data['message'] ?? 'Failed to switch mode');
+      _setLoading(false);
+      return false;
+    } on AppException catch (e) {
+      _setError(e.message);
+      _setLoading(false);
+      return false;
+    } catch (e) {
+      _setError('Failed to switch mode. Please try again.');
+      _setLoading(false);
+      return false;
+    }
+  }
+
   Future<bool> register(
     String fullName,
     String email,

@@ -42,6 +42,8 @@ import 'package:starq_app/features/reviews/review_screen.dart';
 import 'package:starq_app/features/legal/legal_screen.dart';
 import 'package:starq_app/features/vehicles/vehicle_consent_screen.dart';
 import 'package:starq_app/features/auth/splash_screen.dart';
+import 'package:starq_app/features/partner_onboarding/screens/partner_onboarding_wizard_screen.dart';
+import 'package:starq_app/features/partner_onboarding/screens/partner_status_screen.dart';
 
 GoRouter createAppRouter(AuthProvider authProvider) {
   return GoRouter(
@@ -56,11 +58,12 @@ GoRouter createAppRouter(AuthProvider authProvider) {
       final isAuthRoute = state.matchedLocation == '/sign-in' ||
           state.matchedLocation == '/create-account' ||
           state.matchedLocation == '/onboarding' ||
-          state.matchedLocation == '/role-selection';
+          state.matchedLocation == '/role-selection' ||
+          state.matchedLocation == '/partner-onboarding';
 
       if (state.matchedLocation == '/splash') {
         if (isAuth) {
-          if (authProvider.currentUser?.role == 'PARTNER') {
+          if (authProvider.currentUser?.role == 'PARTNER' && (authProvider.currentUser?.isApprovedPartner ?? false)) {
             return '/partner-dashboard';
           } else if (authProvider.currentUser?.role == 'ADMIN') {
             return '/admin-dashboard';
@@ -75,13 +78,20 @@ GoRouter createAppRouter(AuthProvider authProvider) {
         return '/sign-in';
       }
 
-      if (isAuth && isAuthRoute) {
-        if (authProvider.currentUser?.role == 'PARTNER') {
+      if (isAuth && (state.matchedLocation == '/sign-in' || state.matchedLocation == '/create-account' || state.matchedLocation == '/onboarding')) {
+        if (authProvider.currentUser?.role == 'PARTNER' && (authProvider.currentUser?.isApprovedPartner ?? false)) {
           return '/partner-dashboard';
         } else if (authProvider.currentUser?.role == 'ADMIN') {
           return '/admin-dashboard';
         }
         return '/home';
+      }
+
+      // Guard partner dashboard: only approved partners can enter
+      if (isAuth && state.matchedLocation == '/partner-dashboard') {
+        if (!(authProvider.currentUser?.isApprovedPartner ?? false)) {
+          return '/partner-status';
+        }
       }
 
       return null;
@@ -107,6 +117,16 @@ GoRouter createAppRouter(AuthProvider authProvider) {
       GoRoute(
         path: '/role-selection',
         builder: (context, state) => const RoleSelectionScreen(),
+      ),
+      GoRoute(
+        path: '/partner-onboarding',
+        builder: (context, state) => const PartnerOnboardingWizardScreen(),
+      ),
+      GoRoute(
+        path: '/partner-status',
+        builder: (context, state) => PartnerStatusScreen(
+          initialData: state.extra as Map<String, dynamic>?,
+        ),
       ),
       GoRoute(
         path: '/sign-in',

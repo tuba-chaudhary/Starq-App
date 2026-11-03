@@ -1,14 +1,135 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { PartnerStatus } from '@prisma/client';
 import { RewardsService } from '../rewards/rewards.service';
+import { PrivateStorageService } from '../storage/private-storage.service';
+import { ApplyPartnerDto } from './dto/apply-partner.dto';
 
 @Injectable()
 export class PartnersService {
   constructor(
     private prisma: PrismaService,
     private rewardsService: RewardsService,
+    @Optional() private storageService?: PrivateStorageService,
   ) {}
+
+  async applyPartner(
+    userId: string,
+    dto: ApplyPartnerDto,
+    profilePhotoFile?: { buffer: Buffer; originalname: string; mimetype: string },
+    idDocumentFile?: { buffer: Buffer; originalname: string; mimetype: string },
+  ) {
+    if (!profilePhotoFile) {
+      throw new BadRequestException('Profile photo is required');
+    }
+    if (!idDocumentFile) {
+      throw new BadRequestException('Identity document (Aadhaar or PAN) is required');
+    }
+
+    const user = await this.prisma.user.findUnique({ where: { id: userId } });
+    if (!user) throw new NotFoundException('User not found');
+
+    const existingApplication = await this.prisma.partnerApplication.findUnique({
+      where: { userId },
+    });
+
+    if (existingApplication && existingApplication.status === 'APPROVED') {
+      throw new BadRequestException('Your partner application is already approved');
+    }
+
+    if (!this.storageService) {
+      throw new BadRequestException('Storage service not initialized');
+    }
+
+    const savedPhoto = await this.storageService.savePrivateFile(
+      profilePhotoFile.buffer,
+      profilePhotoFile.originalname,
+      profilePhotoFile.mimetype,
+      ['image/jpeg', 'image/png'],
+    );
+
+    const savedDoc = await this.storageService.savePrivateFile(
+      idDocumentFile.buffer,
+      idDocumentFile.originalname,
+      idDocumentFile.mimetype,
+      ['image/jpeg', 'image/png', 'application/pdf'],
+    );
+
+    const applicationId =
+      existingApplication?.applicationId ||
+      `STQ-APP-${Math.floor(10000 + Math.random() * 90000)}`;
+
+    if (existingApplication) {
+      await this.storageService.deletePrivateFile(existingApplication.profilePhotoPath);
+      await this.storageService.deletePrivateFile(existingApplication.idDocumentPath);
+
+      return this.prisma.partnerApplication.update({
+        where: { userId },
+        data: {
+          fullName: dto.fullName.trim(),
+          email: dto.email.trim().toLowerCase(),
+          phone: user.phone || '',
+          address: dto.address.trim(),
+          city: dto.city.trim(),
+          pinCode: dto.pinCode.trim(),
+          profilePhotoPath: savedPhoto.storedFilename,
+          idDocumentType: dto.idDocumentType,
+          idDocumentPath: savedDoc.storedFilename,
+          status: 'PENDING_VERIFICATION',
+          rejectionReason: null,
+          reviewedAt: null,
+          reviewedById: null,
+        },
+      });
+    }
+
+    return this.prisma.partnerApplication.create({
+      data: {
+        applicationId,
+        userId,
+        fullName: dto.fullName.trim(),
+        email: dto.email.trim().toLowerCase(),
+        phone: user.phone || '',
+        address: dto.address.trim(),
+        city: dto.city.trim(),
+        pinCode: dto.pinCode.trim(),
+        profilePhotoPath: savedPhoto.storedFilename,
+        idDocumentType: dto.idDocumentType,
+        idDocumentPath: savedDoc.storedFilename,
+        status: 'PENDING_VERIFICATION',
+      },
+    });
+  }
+
+  async getApplicationStatus(userId: string) {
+    const application = await this.prisma.partnerApplication.findUnique({
+      where: { userId },
+      select: {
+        id: true,
+        applicationId: true,
+        fullName: true,
+        email: true,
+        phone: true,
+        city: true,
+        address: true,
+        pinCode: true,
+        idDocumentType: true,
+        status: true,
+        rejectionReason: true,
+        createdAt: true,
+        reviewedAt: true,
+      },
+    });
+
+    if (!application) {
+      return { hasApplication: false, status: null };
+    }
+
+    return {
+      hasApplication: true,
+      ...application,
+    };
+  }
 
   async updateStatus(userId: string, status: PartnerStatus) {
     const partner = await this.prisma.partner.findUnique({

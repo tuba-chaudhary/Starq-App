@@ -4,6 +4,9 @@ import {
   ConflictException,
   NotFoundException,
   BadRequestException,
+  ForbiddenException,
+  InternalServerErrorException,
+  Optional,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
@@ -12,6 +15,8 @@ import * as bcrypt from 'bcryptjs';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { SocialLoginDto } from './dto/social-login.dto';
+import { SendOtpDto, VerifyOtpDto } from './dto/otp.dto';
+import { OtpService } from './otp/otp.service';
 import {
   normalizeReferralCode,
   isValidReferralCodeFormat,
@@ -20,7 +25,11 @@ import {
 
 @Injectable()
 export class AuthService {
-  constructor(private prisma: PrismaService, private jwtService: JwtService) {}
+  constructor(
+    private prisma: PrismaService,
+    private jwtService: JwtService,
+    @Optional() private otpService?: OtpService,
+  ) {}
 
   async register(dto: RegisterDto) {
     const existingUser = await this.prisma.user.findFirst({
@@ -181,18 +190,118 @@ export class AuthService {
     return this.generateTokens(user);
   }
 
+  async sendOtp(dto: SendOtpDto) {
+    if (!this.otpService) {
+      throw new InternalServerErrorException('OTP service is not initialized');
+    }
+    return this.otpService.sendOtp(dto.phone);
+  }
+
+  async verifyOtp(dto: VerifyOtpDto) {
+    if (!this.otpService) {
+      throw new InternalServerErrorException('OTP service is not initialized');
+    }
+    await this.otpService.verifyOtp(dto.phone, dto.otp);
+
+    const cleanPhone = dto.phone.replace(/\D/g, '').slice(-10);
+
+    // Reuse existing user if found - NEVER create duplicate User!
+    let user = await this.prisma.user.findFirst({
+      where: { phone: cleanPhone },
+      include: {
+        partnerApplication: { select: { id: true, applicationId: true, status: true, rejectionReason: true } },
+        partnerProfile: { select: { id: true, isActive: true, status: true } },
+      },
+    });
+
+    if (!user) {
+      const candidateCode = generateRandomReferralCode();
+      const generatedEmail = dto.email && dto.email.trim().length > 0
+        ? dto.email.trim().toLowerCase()
+        : `${cleanPhone}@phone.starq.app`;
+
+      user = await this.prisma.user.create({
+        data: {
+          phone: cleanPhone,
+          email: generatedEmail,
+          fullName: dto.fullName?.trim() || 'STARQ Customer',
+          role: 'CUSTOMER',
+          roles: ['CUSTOMER'],
+          referralCode: candidateCode,
+        },
+        include: {
+          partnerApplication: { select: { id: true, applicationId: true, status: true, rejectionReason: true } },
+          partnerProfile: { select: { id: true, isActive: true, status: true } },
+        },
+      });
+    }
+
+    return this.generateTokens(user);
+  }
+
+  async switchMode(userId: string, targetRole: 'CUSTOMER' | 'PARTNER') {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      include: {
+        partnerApplication: { select: { id: true, applicationId: true, status: true } },
+        partnerProfile: { select: { id: true, isActive: true, status: true } },
+      },
+    });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (targetRole === 'PARTNER') {
+      const isApproved =
+        (Array.isArray(user.roles) && user.roles.includes('PARTNER')) ||
+        user.partnerApplication?.status === 'APPROVED' ||
+        user.partnerProfile?.isActive === true;
+
+      if (!isApproved) {
+        throw new ForbiddenException(
+          'Your Service Partner application has not been approved yet.',
+        );
+      }
+    }
+
+    const updated = await this.prisma.user.update({
+      where: { id: userId },
+      data: { role: targetRole },
+      include: {
+        partnerApplication: { select: { id: true, applicationId: true, status: true } },
+        partnerProfile: { select: { id: true, isActive: true, status: true } },
+      },
+    });
+
+    return this.generateTokens(updated);
+  }
+
   private generateTokens(user: any) {
-    const payload = { sub: user.id, email: user.email, role: user.role };
+    const roles: string[] = Array.isArray(user.roles) && user.roles.length > 0
+      ? user.roles
+      : [user.role || 'CUSTOMER'];
+
+    const payload = { sub: user.id, email: user.email, role: user.role, roles };
+    const responseUser: any = {
+      id: user.id,
+      email: user.email,
+      fullName: user.fullName,
+      role: user.role,
+      phone: user.phone ?? null,
+      referralCode: user.referralCode ?? null,
+    };
+
+    if (user.roles !== undefined) {
+      responseUser.roles = user.roles;
+    }
+    if (user.partnerApplication !== undefined) {
+      responseUser.partnerApplication = user.partnerApplication;
+    }
+
     return {
       accessToken: this.jwtService.sign(payload),
-      user: {
-        id: user.id,
-        email: user.email,
-        fullName: user.fullName,
-        role: user.role,
-        phone: user.phone ?? null,
-        referralCode: user.referralCode ?? null,
-      }
+      user: responseUser,
     };
   }
 

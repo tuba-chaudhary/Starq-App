@@ -35,6 +35,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
     final summary = rewardsProvider.summary;
 
     final menuItems = [
+      if (user?.isApprovedPartner == true)
+        {
+          'icon': Icons.swap_horiz_rounded,
+          'title': 'Switch to Partner Mode',
+          'subtitle': 'Manage your service jobs',
+          'action': 'switch_to_partner',
+        }
+      else if (user?.partnerApplication != null)
+        {
+          'icon': Icons.assignment_outlined,
+          'title': 'Partner Application Status',
+          'subtitle': 'Status: ${user!.partnerApplication!['status'] ?? 'Under Review'}',
+          'route': '/partner-status',
+        }
+      else
+        {
+          'icon': Icons.handyman_outlined,
+          'title': 'Join as Service Partner',
+          'subtitle': 'Register to provide services with STARQ',
+          'route': '/partner-onboarding',
+        },
       {
         'icon': Icons.directions_car_outlined,
         'title': 'My Garage',
@@ -178,6 +199,19 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     child: HoverCard(
                       onTap: () async {
                         final action = item['action'] as String?;
+                        if (action == 'switch_to_partner') {
+                          final ok = await authProvider.switchMode('PARTNER');
+                          if (context.mounted) {
+                            if (ok) {
+                              context.go('/partner-dashboard');
+                            } else {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text(authProvider.error ?? 'Failed to switch to Partner mode')),
+                              );
+                            }
+                          }
+                          return;
+                        }
                         if (action == 'delete_account') {
                           final confirm = await showDialog(
                             context: context,

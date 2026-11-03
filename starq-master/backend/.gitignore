@@ -5,3 +5,6 @@ dist/
 *.log
 
 .env.neon
+uploads/
+private_documents/
+

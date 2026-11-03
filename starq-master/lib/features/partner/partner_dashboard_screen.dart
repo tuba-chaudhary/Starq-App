@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:provider/provider.dart';
 import 'package:starq_app/app/theme/app_theme.dart';
 import 'package:starq_app/core/widgets/starq_logo.dart';
@@ -59,6 +60,19 @@ class _PartnerDashboardScreenState extends State<PartnerDashboardScreen> {
           ],
         ),
         actions: [
+          TextButton.icon(
+            onPressed: () async {
+              await auth.switchMode('CUSTOMER');
+              if (context.mounted) {
+                context.go('/home');
+              }
+            },
+            icon: const Icon(Icons.swap_horiz, size: 18, color: Color(0xFFE50914)),
+            label: const Text(
+              'Customer Mode',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.bold, color: Color(0xFFE50914)),
+            ),
+          ),
           IconButton(
             icon: const Icon(Icons.logout),
             onPressed: () {

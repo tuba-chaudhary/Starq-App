@@ -15,6 +15,7 @@ import { PartnersModule } from './partners/partners.module';
 import { AssignmentsModule } from './assignments/assignments.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AdminModule } from './admin/admin.module';
+import { StorageModule } from './storage/storage.module';
 
 import { Module, Controller, Get } from '@nestjs/common';
 
@@ -42,7 +43,8 @@ class HealthController {
     PartnersModule,
     AssignmentsModule,
     NotificationsModule,
-    AdminModule
+    AdminModule,
+    StorageModule,
   ],
   controllers: [HealthController],
   providers: [],

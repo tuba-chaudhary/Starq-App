@@ -1,6 +1,8 @@
-import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { NotificationsService } from '../notifications/notifications.service';
+import { ApplicationStatus } from '@prisma/client';
+import { PrivateStorageService } from '../storage/private-storage.service';
 
 @Injectable()
 export class AdminService {
@@ -9,6 +11,7 @@ export class AdminService {
   constructor(
     private prisma: PrismaService,
     private notificationsService: NotificationsService,
+    @Optional() private storageService?: PrivateStorageService,
   ) {}
 
   async getBookings(status?: string, take: number = 50, skip: number = 0) {
@@ -200,5 +203,175 @@ export class AdminService {
     }
 
     return this.getBookingDetails(booking.id);
+  }
+
+  // ==========================================
+  // PARTNER APPLICATION VERIFICATION METHODS
+  // ==========================================
+
+  async getPartnerApplications(status?: ApplicationStatus) {
+    return this.prisma.partnerApplication.findMany({
+      where: status ? { status } : undefined,
+      include: {
+        user: { select: { id: true, fullName: true, phone: true, email: true } },
+        reviewedBy: { select: { id: true, fullName: true, email: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async getPartnerApplicationDetails(id: string) {
+    const application = await this.prisma.partnerApplication.findUnique({
+      where: { id },
+      include: {
+        user: { select: { id: true, fullName: true, phone: true, email: true, roles: true, role: true } },
+        reviewedBy: { select: { id: true, fullName: true, email: true } },
+      },
+    });
+    if (!application) throw new NotFoundException('Partner application not found');
+    return application;
+  }
+
+  async getPartnerApplicationDocument(id: string, type: 'photo' | 'id-proof'): Promise<{ filePath: string; mimeType: string }> {
+    const application = await this.prisma.partnerApplication.findUnique({ where: { id } });
+    if (!application) throw new NotFoundException('Partner application not found');
+
+    if (!this.storageService) {
+      throw new BadRequestException('Storage service is not available');
+    }
+
+    const storedFilename = type === 'photo' ? application.profilePhotoPath : application.idDocumentPath;
+    const filePath = this.storageService.getPrivateFilePath(storedFilename);
+
+    const ext = storedFilename.toLowerCase();
+    let mimeType = 'application/octet-stream';
+    if (ext.endsWith('.jpg') || ext.endsWith('.jpeg')) mimeType = 'image/jpeg';
+    else if (ext.endsWith('.png')) mimeType = 'image/png';
+    else if (ext.endsWith('.pdf')) mimeType = 'application/pdf';
+
+    return { filePath, mimeType };
+  }
+
+  async approvePartnerApplication(applicationId: string, adminUserId: string) {
+    const application = await this.prisma.partnerApplication.findUnique({
+      where: { id: applicationId },
+      include: { user: true },
+    });
+    if (!application) throw new NotFoundException('Partner application not found');
+
+    if (application.userId === adminUserId) {
+      throw new BadRequestException('Admins cannot approve their own application');
+    }
+
+    if (application.status === 'APPROVED') {
+      return application;
+    }
+
+    const existingRoles = Array.isArray(application.user.roles) ? application.user.roles : [application.user.role];
+    const updatedRoles = Array.from(new Set([...existingRoles, 'PARTNER']));
+
+    // Transactional approval: update application, update user roles, and activate Partner model
+    const [updatedApp] = await this.prisma.$transaction([
+      this.prisma.partnerApplication.update({
+        where: { id: applicationId },
+        data: {
+          status: 'APPROVED',
+          rejectionReason: null,
+          reviewedAt: new Date(),
+          reviewedById: adminUserId,
+        },
+      }),
+      this.prisma.user.update({
+        where: { id: application.userId },
+        data: {
+          roles: updatedRoles as any,
+          role: 'PARTNER',
+        },
+      }),
+      this.prisma.partner.upsert({
+        where: { userId: application.userId },
+        create: {
+          userId: application.userId,
+          isActive: true,
+          status: 'OFFLINE',
+          serviceArea: application.city,
+        },
+        update: {
+          isActive: true,
+          serviceArea: application.city,
+        },
+      }),
+    ]);
+
+    await this.notificationsService.sendNotification(
+      application.userId,
+      'Application Approved!',
+      'Congratulations! Your STARQ Service Partner account has been approved.',
+      'PARTNER_APPROVED',
+    );
+
+    return updatedApp;
+  }
+
+  async rejectPartnerApplication(applicationId: string, adminUserId: string, rejectionReason: string) {
+    if (!rejectionReason || rejectionReason.trim().length === 0) {
+      throw new BadRequestException('A rejection reason is mandatory when rejecting a partner application');
+    }
+
+    const application = await this.prisma.partnerApplication.findUnique({
+      where: { id: applicationId },
+    });
+    if (!application) throw new NotFoundException('Partner application not found');
+
+    const updated = await this.prisma.partnerApplication.update({
+      where: { id: applicationId },
+      data: {
+        status: 'REJECTED',
+        rejectionReason: rejectionReason.trim(),
+        reviewedAt: new Date(),
+        reviewedById: adminUserId,
+      },
+    });
+
+    await this.notificationsService.sendNotification(
+      application.userId,
+      'Application Update',
+      `Your partner application requires correction: ${rejectionReason.trim()}`,
+      'PARTNER_REJECTED',
+    );
+
+    return updated;
+  }
+
+  async suspendPartner(applicationId: string, adminUserId: string) {
+    const application = await this.prisma.partnerApplication.findUnique({
+      where: { id: applicationId },
+      include: { user: true },
+    });
+    if (!application) throw new NotFoundException('Partner application not found');
+
+    const [updatedApp] = await this.prisma.$transaction([
+      this.prisma.partnerApplication.update({
+        where: { id: applicationId },
+        data: {
+          status: 'SUSPENDED',
+          reviewedAt: new Date(),
+          reviewedById: adminUserId,
+        },
+      }),
+      this.prisma.partner.updateMany({
+        where: { userId: application.userId },
+        data: {
+          isActive: false,
+          status: 'OFFLINE',
+        },
+      }),
+      this.prisma.user.update({
+        where: { id: application.userId },
+        data: { role: 'CUSTOMER' },
+      }),
+    ]);
+
+    return updatedApp;
   }
 }

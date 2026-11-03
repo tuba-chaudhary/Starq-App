@@ -33,6 +33,18 @@ enum Role {
   PARTNER
 }
 
+enum ApplicationStatus {
+  PENDING_VERIFICATION
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum IdDocumentType {
+  AADHAAR
+  PAN
+}
+
 enum ReferralStatus {
   PENDING
   REWARDED
@@ -45,20 +57,23 @@ model User {
   phone        String?   @unique
   fullName     String?
   role         Role      @default(CUSTOMER)
+  roles        Role[]    @default([CUSTOMER])
   referralCode String?   @unique
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  vehicles         Vehicle[]
-  addresses        Address[]
-  bookings         Booking[]
-  reviews          Review[]
-  pointsLedger     PointsLedger[]
-  partnerProfile   Partner?
-  notifications    Notification[]
-  deviceTokens     DeviceToken[]
-  referralsMade    Referral[]     @relation("UserReferrer")
-  referralReceived Referral?      @relation("UserReferee")
+  vehicles             Vehicle[]
+  addresses            Address[]
+  bookings             Booking[]
+  reviews              Review[]
+  pointsLedger         PointsLedger[]
+  partnerProfile       Partner?
+  notifications        Notification[]
+  deviceTokens         DeviceToken[]
+  referralsMade        Referral[]           @relation("UserReferrer")
+  referralReceived     Referral?            @relation("UserReferee")
+  partnerApplication   PartnerApplication?
+  reviewedApplications PartnerApplication[] @relation("AdminReviewedApplications")
 }
 
 model VehicleType {
@@ -346,3 +361,31 @@ model Referral {
   @@index([referrerId])
   @@index([status])
 }
+
+model PartnerApplication {
+  id               String            @id @default(uuid())
+  applicationId    String            @unique
+  userId           String            @unique
+  fullName         String
+  email            String
+  phone            String
+  address          String
+  city             String
+  pinCode          String
+  profilePhotoPath String
+  idDocumentType   IdDocumentType
+  idDocumentPath   String
+  status           ApplicationStatus @default(PENDING_VERIFICATION)
+  rejectionReason  String?
+  reviewedAt       DateTime?
+  reviewedById     String?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  user       User  @relation(fields: [userId], references: [id])
+  reviewedBy User? @relation("AdminReviewedApplications", fields: [reviewedById], references: [id])
+
+  @@index([status])
+  @@index([userId])
+}
+
